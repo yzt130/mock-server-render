@@ -9,8 +9,7 @@ public class MockServer {
 
     private static Connection getConnection() throws SQLException {
         String dbUrl = System.getenv("DB_URL");
-        
-        // Cứu cánh nếu chạy local
+
         if (dbUrl == null || dbUrl.isEmpty()) {
             try {
                 Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
@@ -24,7 +23,6 @@ public class MockServer {
             throw new SQLException("Chuỗi DB_URL bị rỗng! Hãy kiểm tra Environment Variables trên Render.");
         }
 
-        // Ẩn bớt password khi in log để bảo mật
         System.out.println("Đang thử kết nối tới Database...");
         return DriverManager.getConnection(dbUrl);
     }
@@ -32,9 +30,9 @@ public class MockServer {
     private static void initDatabase() {
         try {
             String sql = "CREATE TABLE IF NOT EXISTS products (" +
-                         "id SERIAL PRIMARY KEY, " +
-                         "name VARCHAR(100) NOT NULL, " +
-                         "price NUMERIC(10, 2) NOT NULL)";
+                    "id SERIAL PRIMARY KEY, " +
+                    "name VARCHAR(100) NOT NULL, " +
+                    "price NUMERIC(10, 2) NOT NULL)";
             try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
                 stmt.execute(sql);
                 System.out.println("✅ Đã kiểm tra/tạo bảng products thành công!");
@@ -42,7 +40,6 @@ public class MockServer {
         } catch (Exception e) {
             System.err.println("❌ Lỗi khi khởi tạo DB: " + e.getMessage());
             e.printStackTrace();
-            // Không throw exception ra ngoài để giữ Server sống
         }
     }
 
@@ -58,7 +55,7 @@ public class MockServer {
         Javalin app = Javalin.create(config -> {
             config.showJavalinBanner = false; // Tắt logo cho nhẹ log
         }).start("0.0.0.0", port);
-        
+
         System.out.println("🚀 Mock Server đã bật thành công tại cổng " + port);
 
         // 3. SAU KHI SERVER SỐNG, MỚI BẮT ĐẦU KẾT NỐI DB
@@ -66,7 +63,7 @@ public class MockServer {
 
         Gson gson = new Gson();
 
-        // API Test sức khỏe Server
+        // API Test Server
         app.get("/", ctx -> ctx.result("Server Đấu Giá (Mock) đang hoạt động mượt mà!"));
 
         // LƯU PRODUCT (Có bọc try-catch để trả lỗi thẳng ra màn hình Postman)
@@ -75,7 +72,7 @@ public class MockServer {
                 Product newProduct = gson.fromJson(ctx.body(), Product.class);
                 String sql = "INSERT INTO products (name, price) VALUES (?, ?) RETURNING id";
                 try (Connection conn = getConnection();
-                     PreparedStatement ps = conn.prepareStatement(sql)) {
+                        PreparedStatement ps = conn.prepareStatement(sql)) {
                     ps.setString(1, newProduct.getName());
                     ps.setDouble(2, newProduct.getPrice());
                     ResultSet rs = ps.executeQuery();
@@ -95,7 +92,7 @@ public class MockServer {
                 int id = Integer.parseInt(ctx.pathParam("id"));
                 String sql = "SELECT * FROM products WHERE id = ?";
                 try (Connection conn = getConnection();
-                     PreparedStatement ps = conn.prepareStatement(sql)) {
+                        PreparedStatement ps = conn.prepareStatement(sql)) {
                     ps.setInt(1, id);
                     ResultSet rs = ps.executeQuery();
                     if (rs.next()) {
@@ -119,7 +116,7 @@ public class MockServer {
                 int id = Integer.parseInt(ctx.pathParam("id"));
                 String sql = "DELETE FROM products WHERE id = ?";
                 try (Connection conn = getConnection();
-                     PreparedStatement ps = conn.prepareStatement(sql)) {
+                        PreparedStatement ps = conn.prepareStatement(sql)) {
                     ps.setInt(1, id);
                     int rows = ps.executeUpdate();
                     if (rows > 0) {
@@ -129,7 +126,7 @@ public class MockServer {
                     }
                 }
             } catch (Exception e) {
-                 ctx.status(500).result("Lỗi Database: " + e.getMessage());
+                ctx.status(500).result("Lỗi Database: " + e.getMessage());
             }
         });
     }
