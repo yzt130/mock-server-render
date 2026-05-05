@@ -1,4 +1,4 @@
-package main.java.mockserver;
+package mockserver;
 
 import com.google.gson.Gson;
 import io.javalin.Javalin;

@@ -6,4 +6,4 @@ COPY . .
 
 RUN mvn clean compile
 
-CMD ["mvn", "exec:java", "-Dexec.mainClass=mockserver.MockServer"]
+CMD ["mvn", "compile", "exec:java", "-Dexec.mainClass=mockserver.MockServer"]

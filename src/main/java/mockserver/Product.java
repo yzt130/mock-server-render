@@ -1,4 +1,4 @@
-package main.java.mockserver;
+package mockserver;
 
 public class Product {
     private int id;
