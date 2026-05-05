@@ -8,100 +8,128 @@ import io.github.cdimascio.dotenv.Dotenv;
 public class MockServer {
 
     private static Connection getConnection() throws SQLException {
-        // Trên Render nó sẽ lấy từ biến môi trường (System.getenv)
-        // Dưới local nó sẽ lấy từ file .env
         String dbUrl = System.getenv("DB_URL");
-        if (dbUrl == null) {
-            Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
-            dbUrl = dotenv.get("DB_URL");
+        
+        // Cứu cánh nếu chạy local
+        if (dbUrl == null || dbUrl.isEmpty()) {
+            try {
+                Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
+                dbUrl = dotenv.get("DB_URL");
+            } catch (Exception e) {
+                System.err.println("Không load được file .env");
+            }
         }
+
+        if (dbUrl == null || dbUrl.isEmpty()) {
+            throw new SQLException("Chuỗi DB_URL bị rỗng! Hãy kiểm tra Environment Variables trên Render.");
+        }
+
+        // Ẩn bớt password khi in log để bảo mật
+        System.out.println("Đang thử kết nối tới Database...");
         return DriverManager.getConnection(dbUrl);
     }
 
-    // Hàm tự động tạo bảng products(nếu chưa có)
     private static void initDatabase() {
-        String sql = "CREATE TABLE IF NOT EXISTS products (" +
-                "id SERIAL PRIMARY KEY, " +
-                "name VARCHAR(100) NOT NULL, " +
-                "price NUMERIC(10, 2) NOT NULL)";
-        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
-            System.out.println("✅ Đã kiểm tra/tạo bảng products thành công!");
-        } catch (SQLException e) {
-            System.err.println("❌ Lỗi DB: " + e.getMessage());
+        try {
+            String sql = "CREATE TABLE IF NOT EXISTS products (" +
+                         "id SERIAL PRIMARY KEY, " +
+                         "name VARCHAR(100) NOT NULL, " +
+                         "price NUMERIC(10, 2) NOT NULL)";
+            try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+                stmt.execute(sql);
+                System.out.println("✅ Đã kiểm tra/tạo bảng products thành công!");
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Lỗi khi khởi tạo DB: " + e.getMessage());
+            e.printStackTrace();
+            // Không throw exception ra ngoài để giữ Server sống
         }
     }
 
     public static void main(String[] args) {
-        initDatabase(); // Khởi tạo DB trước
+        // 1. Lấy Port của Render cấp
+        int port = 7070;
+        String portEnv = System.getenv("PORT");
+        if (portEnv != null && !portEnv.isEmpty()) {
+            port = Integer.parseInt(portEnv);
+        }
+
+        // 2. MỞ PORT SERVER TRƯỚC TIÊN (Để Render không báo lỗi No Open Port)
+        Javalin app = Javalin.create(config -> {
+            config.showJavalinBanner = false; // Tắt logo cho nhẹ log
+        }).start("0.0.0.0", port);
+        
+        System.out.println("🚀 Mock Server đã bật thành công tại cổng " + port);
+
+        // 3. SAU KHI SERVER SỐNG, MỚI BẮT ĐẦU KẾT NỐI DB
+        initDatabase();
+
         Gson gson = new Gson();
 
-        // Render thường cấp port qua biến môi trường "PORT". Nếu không có thì chạy port
-        // 7070.
-        int port = System.getenv("PORT") != null ? Integer.parseInt(System.getenv("PORT")) : 7070;
+        // API Test sức khỏe Server
+        app.get("/", ctx -> ctx.result("Server Đấu Giá (Mock) đang hoạt động mượt mà!"));
 
-        // Khởi động Server
-        Javalin app = Javalin.create().start(port);
-        System.out.println("🚀 Mock Server đang chạy tại cổng " + port);
-
-        app.get("/", ctx -> ctx.result("Chào mừng đến với Mock Server Đấu Giá!"));
-
-        // 1. GỬI LỆNH: LƯU 1 PRODUCT VÀO DATABASE (POST)
+        // LƯU PRODUCT (Có bọc try-catch để trả lỗi thẳng ra màn hình Postman)
         app.post("/products", ctx -> {
-            Product newProduct = gson.fromJson(ctx.body(), Product.class);
-            String sql = "INSERT INTO products (name, price) VALUES (?, ?) RETURNING id";
-
-            try (Connection conn = getConnection();
-                    PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setString(1, newProduct.getName());
-                ps.setDouble(2, newProduct.getPrice());
-
-                ResultSet rs = ps.executeQuery();
-                if (rs.next()) {
-                    newProduct.setId(rs.getInt("id"));
-                    ctx.status(201).result("✅ Lưu thành công! ID mới là: " + newProduct.getId());
+            try {
+                Product newProduct = gson.fromJson(ctx.body(), Product.class);
+                String sql = "INSERT INTO products (name, price) VALUES (?, ?) RETURNING id";
+                try (Connection conn = getConnection();
+                     PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setString(1, newProduct.getName());
+                    ps.setDouble(2, newProduct.getPrice());
+                    ResultSet rs = ps.executeQuery();
+                    if (rs.next()) {
+                        newProduct.setId(rs.getInt("id"));
+                        ctx.status(201).result("✅ Lưu thành công! ID mới là: " + newProduct.getId());
+                    }
                 }
-            } catch (SQLException e) {
-                ctx.status(500).result("Lỗi lưu DB: " + e.getMessage());
+            } catch (Exception e) {
+                ctx.status(500).result("Lỗi Database: " + e.getMessage());
             }
         });
 
-        // 2. GỬI LỆNH: LẤY THÔNG TIN PRODUCT (GET)
+        // XEM PRODUCT
         app.get("/products/{id}", ctx -> {
-            int id = Integer.parseInt(ctx.pathParam("id"));
-            String sql = "SELECT * FROM products WHERE id = ?";
-
-            try (Connection conn = getConnection();
-                    PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setInt(1, id);
-                ResultSet rs = ps.executeQuery();
-
-                if (rs.next()) {
-                    Product p = new Product();
-                    p.setId(rs.getInt("id"));
-                    p.setName(rs.getString("name"));
-                    p.setPrice(rs.getDouble("price"));
-                    ctx.json(p); // Trả về dạng JSON
-                } else {
-                    ctx.status(404).result("Không tìm thấy Product với ID " + id);
+            try {
+                int id = Integer.parseInt(ctx.pathParam("id"));
+                String sql = "SELECT * FROM products WHERE id = ?";
+                try (Connection conn = getConnection();
+                     PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setInt(1, id);
+                    ResultSet rs = ps.executeQuery();
+                    if (rs.next()) {
+                        Product p = new Product();
+                        p.setId(rs.getInt("id"));
+                        p.setName(rs.getString("name"));
+                        p.setPrice(rs.getDouble("price"));
+                        ctx.json(p);
+                    } else {
+                        ctx.status(404).result("Không tìm thấy Product ID: " + id);
+                    }
                 }
+            } catch (Exception e) {
+                ctx.status(500).result("Lỗi Database: " + e.getMessage());
             }
         });
 
-        // 3. XOÁ PRODUCT (DELETE)
+        // XOÁ PRODUCT
         app.delete("/products/{id}", ctx -> {
-            int id = Integer.parseInt(ctx.pathParam("id"));
-            String sql = "DELETE FROM products WHERE id = ?";
-
-            try (Connection conn = getConnection();
-                    PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setInt(1, id);
-                int rows = ps.executeUpdate();
-                if (rows > 0) {
-                    ctx.result("✅ Đã xóa thành công Product ID: " + id);
-                } else {
-                    ctx.status(404).result("Không tìm thấy Product để xóa!");
+            try {
+                int id = Integer.parseInt(ctx.pathParam("id"));
+                String sql = "DELETE FROM products WHERE id = ?";
+                try (Connection conn = getConnection();
+                     PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setInt(1, id);
+                    int rows = ps.executeUpdate();
+                    if (rows > 0) {
+                        ctx.result("✅ Đã xóa thành công Product ID: " + id);
+                    } else {
+                        ctx.status(404).result("Không tìm thấy Product để xóa!");
+                    }
                 }
+            } catch (Exception e) {
+                 ctx.status(500).result("Lỗi Database: " + e.getMessage());
             }
         });
     }
