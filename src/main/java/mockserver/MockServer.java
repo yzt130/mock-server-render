@@ -12,7 +12,7 @@ public class MockServer {
         // Dưới local nó sẽ lấy từ file .env
         String dbUrl = System.getenv("DB_URL");
         if (dbUrl == null) {
-            Dotenv dotenv = Dotenv.load();
+            Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
             dbUrl = dotenv.get("DB_URL");
         }
         return DriverManager.getConnection(dbUrl);
